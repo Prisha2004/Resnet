@@ -138,3 +138,105 @@ def build_resnet50_unet(input_shape):
 model = build_resnet50_unet((512,512,3))
 
 model.summary()
+
+
+""Defining Metrics And Loss Functions""
+
+
+import tensorflow as tf
+
+def pixel_accuracy(y_true, y_pred):
+    # Convert the predicted probabilities to class labels
+    y_pred = tf.argmax(y_pred, axis=-1)
+
+    # Flatten the tensors
+    y_true = tf.reshape(y_true, [-1])
+    y_pred = tf.reshape(y_pred, [-1])
+
+    # Cast y_true to the same data type as y_pred
+    y_true = tf.cast(y_true, y_pred.dtype)
+
+    # Calculate the pixel accuracy
+    correct_pixels = tf.reduce_sum(tf.cast(tf.equal(y_true, y_pred), tf.float32))
+    total_pixels = tf.cast(tf.size(y_true), tf.float32)
+
+    accuracy = correct_pixels / total_pixels
+    return accuracy
+
+import tensorflow as tf
+from keras import backend as K
+
+def dice_coef(y_true, y_pred, smooth=1):
+    y_true = tf.one_hot(K.argmax(y_true), 3)  
+    y_pred = tf.one_hot(K.argmax(y_pred), 3)  
+    intersection = K.sum(y_true * y_pred)
+    union = K.sum(y_true) + K.sum(y_pred)
+    dice_coef = (2.0 * intersection + smooth) / (union + smooth)
+    return dice_coef
+
+
+def dice_coef_loss(y_true, y_pred):
+    return 1 - dice_coef(y_true, y_pred)
+
+
+from tensorflow.keras.losses import categorical_crossentropy
+
+def bce_dice_loss(y_true, y_pred):
+    bce = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+    return dice_coef_loss(y_true, y_pred) + bce(y_true, y_pred)
+
+import tensorflow.keras as keras
+keras.utils.get_custom_objects()['pixel_accuracy'] = pixel_accuracy
+keras.utils.get_custom_objects()['dice_coef'] = dice_coef
+keras.utils.get_custom_objects()['dice_coef_loss'] = dice_coef_loss
+keras.utils.get_custom_objects()['bce_dice_loss'] = bce_dice_loss
+
+""Training The Model""
+model.compile(
+    optimizer='adam',
+    loss=bce_dice_loss,
+    metrics=[dice_coef,'accuracy'])
+
+history = model.fit(
+    train_gen,
+    validation_data=valid_gen,
+    epochs=50,
+    validation_steps=len(data_val) /8,
+    steps_per_epoch=len(data_train) /8
+)
+
+eval_results = model.evaluate(valid_gen, steps=len(data_val) /32, verbose=1)
+
+""Making Predictions""
+
+
+import cv2
+for i in range(10):
+    index=np.random.randint(1,len(data_test.index))
+    img = cv2.imread(data_test['images'].iloc[index])
+    img = cv2.resize(img ,(256, 256))
+    img = img / 255
+    img = img[np.newaxis, :, :, :]
+    pred=model.predict(img)
+
+    plt.figure(figsize=(10,10))
+    plt.subplot(1,4,1)
+    plt.imshow(np.squeeze(img))
+    plt.title('Original Image')
+    plt.subplot(1,4,2)
+    plt.imshow(np.squeeze(cv2.imread(data_test['masks'].iloc[index])))
+    plt.title('Original Mask')
+    plt.subplot(1,4,3)
+    plt.imshow(np.squeeze(pred) > .8)
+    plt.title('Prediction')
+    plt.subplot(1,4,4)
+    plt.imshow(np.squeeze(img))
+    plt.imshow(np.squeeze(pred) > .8,alpha=0.4)
+    plt.title('Image with prediction mask')
+    plt.show()
+
+""Saving The Model""
+
+import pickle
+with open('model.pkl', 'wb') as f:
+    pickle.dump(model, f)
