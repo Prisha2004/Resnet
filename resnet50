@@ -1,0 +1,140 @@
+""Importing dependencies""
+
+
+import numpy as np 
+import pandas as pd 
+import os 
+import matplotlib.pyplot as plt 
+import tensorflow as tf 
+from PIL import Image
+import glob
+import os
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
+from tensorflow.keras import backend as K
+from tensorflow import keras
+
+*Loading and Splitting The Data*
+images = []
+mask = glob.glob("/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT/*/*_mask.png")
+for i in mask:
+    images.append(i.replace('_mask',''))
+
+print(images[:5])
+print('-------------------')
+print(mask[:5])
+
+data = pd.DataFrame({'images':images,'masks':mask})
+data.head(9)
+
+data.shape
+
+data_train,data_test=train_test_split(data,test_size=0.1)
+data_train,data_val=train_test_split(data_train,test_size=0.1)
+
+datagen = ImageDataGenerator(rotation_range=0.2,
+                            width_shift_range=0.05,
+                            height_shift_range=0.05,
+                            shear_range=0.05,
+                            zoom_range=0.05,
+                            horizontal_flip=True,
+                            fill_mode='nearest',
+                            rescale=1./255)
+
+image_train=datagen.flow_from_dataframe(data_train,  
+                                    target_size=(512,512), 
+                                    color_mode='rgb',
+                                    shuffle=True,
+                                    seed=123,
+                                    x_col ="images", 
+                                    batch_size=8,
+                                    class_mode=None
+                                        )
+mask_train=datagen.flow_from_dataframe(data_train, 
+                                    target_size=(512,512), 
+                                    color_mode='grayscale',
+                                    shuffle=True,
+                                    seed=123,
+                                    x_col ="masks", 
+                                    batch_size=8,
+                                    class_mode=None
+)
+
+image_validation=datagen.flow_from_dataframe(data_val,  
+                                    target_size=(512,512), 
+                                    color_mode='rgb',
+                                    shuffle=True,
+                                    seed=123,
+                                    x_col ="images", 
+                                    batch_size=8,
+                                    class_mode=None
+)
+
+mask_validation=datagen.flow_from_dataframe(data_val, 
+                                    target_size=(512,512), 
+                                    color_mode='grayscale',
+                                    shuffle=True,
+                                    seed=123,
+                                    x_col ="masks", 
+                                    batch_size=8,
+                                    class_mode=None
+)
+
+
+train_gen=zip(image_train,mask_train)
+valid_gen=zip(image_validation,mask_validation)
+
+from tensorflow.keras.layers import Conv2D, BatchNormalization, Activation, MaxPool2D, Conv2DTranspose, Concatenate, Input
+from tensorflow.keras.models import Model
+from tensorflow.keras.applications import ResNet50
+
+def conv_block(inputs, num_filters):
+    x = Conv2D(num_filters, 3, padding="same")(inputs)
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+    
+    x = Conv2D(num_filters, 3, padding="same")(x)
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+    
+    return x
+
+
+def decoder_block(inputs, skip_features, num_filters):
+    x = Conv2DTranspose(num_filters, (2,2), strides=2, padding="same")(inputs)
+    x = Concatenate()([x, skip_features])
+    x = conv_block(x, num_filters)
+    return x
+
+
+def build_resnet50_unet(input_shape):
+    
+    inputs = Input(input_shape)
+    
+    """Pre-trained ResNet50 Model"""
+    resnet50 = ResNet50(include_top=False, weights="imagenet", input_tensor=inputs)
+    
+    """Encoder"""
+    s1 = resnet50.get_layer("input_1").output #512
+    s2 = resnet50.get_layer("conv1_relu").output #256
+    s3 = resnet50.get_layer("conv2_block3_out").output #128
+    s4 = resnet50.get_layer("conv3_block4_out").output #64
+    
+    """Bridge"""
+    b1 = resnet50.get_layer("conv4_block6_out").output
+    
+    """Decoder"""
+    d1 = decoder_block(b1, s4, 512) #64
+    d2 = decoder_block(d1, s3, 256) #128
+    d3 = decoder_block(d2, s2, 128) #256
+    d4 = decoder_block(d3, s1, 64) #512
+    
+    """Outputs"""
+    outputs = Conv2D(1, 1, padding="same", activation="sigmoid")(d4)
+    
+    model = Model(inputs, outputs)
+ return model
+
+model = build_resnet50_unet((512,512,3))
+
+model.summary()
