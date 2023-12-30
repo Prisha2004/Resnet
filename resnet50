@@ -1,242 +1,324 @@
-""Importing dependencies""
+# Set the path to the Kaggle working directory
+working_dir = '/kaggle/working'
+
+# Delete all files and subdirectories in the working directory
+for item in os.listdir(working_dir):
+    item_path = os.path.join(working_dir, item)
+    if os.path.isfile(item_path):
+        os.remove(item_path)
+    elif os.path.isdir(item_path):
+        shutil.rmtree(item_path)
+
+# Confirm that the directory is empty
+print("Kaggle working directory has been cleared.")
 
 
-import numpy as np 
-import pandas as pd 
-import os 
-import matplotlib.pyplot as plt 
-import tensorflow as tf 
-from PIL import Image
-import glob
+import warnings
+
+# Suppress DeprecationWarning and ResourceWarning
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=ResourceWarning)
+
+# Set the path to the input folder containing images and masks
+input_dir = '/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT'
+
+# Set the path to the output folder where overlayed images will be saved
+output_dir = '/kaggle/working/OverlayedImages'
+
+# Create subdirectories for each label
+labels = ['benign', 'malignant', 'normal']
+for label in labels:
+    os.makedirs(os.path.join(output_dir, label), exist_ok=True)
+
+# Function to overlay images and masks, resize if needed, and save the result
+def overlay_and_save(image_path, mask_path, output_path):
+    try:
+        # Check if both image and mask files exist
+        if os.path.exists(image_path) and os.path.exists(mask_path):
+         # Open the actual image and mask image
+            image = Image.open(image_path)
+            mask = Image.open(mask_path)
+
+            # Ensure both images have the same color mode
+            if image.mode != mask.mode:
+                mask = mask.convert(image.mode)
+
+            # Resize the images if their sizes don't match
+            if image.size != mask.size:
+                image = image.resize(mask.size)
+
+            # Overlay the image with the mask
+            overlayed = Image.blend(image, mask, alpha=0.5)
+
+            # Save the overlayed image to the appropriate label folder
+            label = os.path.basename(os.path.dirname(image_path))
+            output_path = os.path.join(output_dir, label, os.path.basename(image_path))
+            overlayed.save(output_path)
+        else:
+            #print(f"File not found for: {image_path} or {mask_path}. Skipping...")
+            pass
+ except Exception as e:
+        print(f"An error occurred for: {image_path} or {mask_path}. Error: {str(e)}")
+
+# Iterate through the subdirectories (benign, malignant, normal)
+for label in labels:
+    label_dir = os.path.join(input_dir, label)
+    if os.path.isdir(label_dir):
+        for image_filename in os.listdir(label_dir):
+            if image_filename.endswith('.png'):
+                image_path = os.path.join(label_dir, image_filename)
+                # Construct the mask file path based on the naming convention
+                mask_filename = image_filename.replace('.png', '_mask.png')
+                mask_path = os.path.join(label_dir, mask_filename)
+                overlay_and_save(image_path, mask_path, output_dir)
+
+print("Overlayed images have been saved to /kaggle/working/OverlayedImages directory.")
+
+
 import os
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from sklearn.model_selection import train_test_split
-from tensorflow.keras import backend as K
-from tensorflow import keras
 
-*Loading and Splitting The Data*
-images = []
-mask = glob.glob("/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT/*/*_mask.png")
-for i in mask:
-    images.append(i.replace('_mask',''))
+# Function to count the number of files in a directory
+def count_files_in_directory(directory):
+    return sum(len(files) for _, _, files in os.walk(directory))
 
-print(images[:5])
-print('-------------------')
-print(mask[:5])
+# Set the paths to the input and output directories
+input_dir = '/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT'
+output_dir = '/kaggle/working/OverlayedImages'
 
-data = pd.DataFrame({'images':images,'masks':mask})
-data.head(9)
+# Count the files in the input and output directories
+input_counts = {}
+output_counts = {}
 
-data.shape
+# Count files in input directory
+for label in os.listdir(input_dir):
+    label_dir = os.path.join(input_dir, label)
+    if os.path.isdir(label_dir):
+        input_counts[label] = count_files_in_directory(label_dir)
 
-data_train,data_test=train_test_split(data,test_size=0.1)
-data_train,data_val=train_test_split(data_train,test_size=0.1)
+# Count files in output directory
+for label in os.listdir(output_dir):
+  label_dir = os.path.join(output_dir, label)
+    if os.path.isdir(label_dir):
+        output_counts[label] = count_files_in_directory(label_dir)
 
-datagen = ImageDataGenerator(rotation_range=0.2,
-                            width_shift_range=0.05,
-                            height_shift_range=0.05,
-                            shear_range=0.05,
-                            zoom_range=0.05,
-                            horizontal_flip=True,
-                            fill_mode='nearest',
-                            rescale=1./255)
+# Print file counts
+print("File Counts Before Overlay-includes masks:")
+for label, count in input_counts.items():
+    print(f"{label}: {count} files")
 
-image_train=datagen.flow_from_dataframe(data_train,  
-                                    target_size=(512,512), 
-                                    color_mode='rgb',
-                                    shuffle=True,
-                                    seed=123,
-                                    x_col ="images", 
-                                    batch_size=8,
-                                    class_mode=None
-                                        )
-mask_train=datagen.flow_from_dataframe(data_train, 
-                                    target_size=(512,512), 
-                                    color_mode='grayscale',
-                                    shuffle=True,
-                                    seed=123,
-                                    x_col ="masks", 
-                                    batch_size=8,
-                                    class_mode=None
-)
-
-image_validation=datagen.flow_from_dataframe(data_val,  
-                                    target_size=(512,512), 
-                                    color_mode='rgb',
-                                    shuffle=True,
-                                    seed=123,
-                                    x_col ="images", 
-                                    batch_size=8,
-                                    class_mode=None
-)
-
-mask_validation=datagen.flow_from_dataframe(data_val, 
-                                    target_size=(512,512), 
-                                    color_mode='grayscale',
-                                    shuffle=True,
-                                    seed=123,
-                                    x_col ="masks", 
-                                    batch_size=8,
-                                    class_mode=None
-)
+print("\nFile Counts After Overlay:")
+for label, count in output_counts.items():
+    print(f"{label}: {count} files")
 
 
-train_gen=zip(image_train,mask_train)
-valid_gen=zip(image_validation,mask_validation)
+# Set the path to the overlayed images directory
+overlayed_dir = '/kaggle/working/OverlayedImages'
 
-from tensorflow.keras.layers import Conv2D, BatchNormalization, Activation, MaxPool2D, Conv2DTranspose, Concatenate, Input
-from tensorflow.keras.models import Model
-from tensorflow.keras.applications import ResNet50
+# Create subdirectories for each label
+labels = ['benign', 'malignant', 'normal']
+label_dirs = [os.path.join(overlayed_dir, label) for label in labels]
 
-def conv_block(inputs, num_filters):
-    x = Conv2D(num_filters, 3, padding="same")(inputs)
-    x = BatchNormalization()(x)
-    x = Activation("relu")(x)
-    
-    x = Conv2D(num_filters, 3, padding="same")(x)
-    x = BatchNormalization()(x)
-    x = Activation("relu")(x)
-    
-    return x
+# Create a figure to display the images
+fig, axs = plt.subplots(3, 4, figsize=(20, 15))
 
+# Desired width and height for each image
+desired_width = 800  # Adjust as needed
+desired_height = 800  # Adjust as needed
 
-def decoder_block(inputs, skip_features, num_filters):
-    x = Conv2DTranspose(num_filters, (2,2), strides=2, padding="same")(inputs)
-    x = Concatenate()([x, skip_features])
-    x = conv_block(x, num_filters)
-    return x
+# Loop through each label and display the first 4 images
+for i, label_dir in enumerate(label_dirs):
+    # Get a list of image files and sort them
+    images = [image for image in os.listdir(label_dir) if image.endswith('.png')]
+    images.sort(key=lambda x: int(x.split('(')[1].split(')')[0]))  # Sort the images by number in parentheses
+ for j, image_filename in enumerate(images[:4]):  # Display the first 4 images
+        image_path = os.path.join(label_dir, image_filename)
+        image = Image.open(image_path)
 
+        # Resize the image to the desired width and height
+        image = image.resize((desired_width, desired_height), Image.ANTIALIAS)
 
-def build_resnet50_unet(input_shape):
-    
-    inputs = Input(input_shape)
-    
-    """Pre-trained ResNet50 Model"""
-    resnet50 = ResNet50(include_top=False, weights="imagenet", input_tensor=inputs)
-    
-    """Encoder"""
-    s1 = resnet50.get_layer("input_1").output #512
-    s2 = resnet50.get_layer("conv1_relu").output #256
-    s3 = resnet50.get_layer("conv2_block3_out").output #128
-    s4 = resnet50.get_layer("conv3_block4_out").output #64
-    
-    """Bridge"""
-    b1 = resnet50.get_layer("conv4_block6_out").output
-    
-    """Decoder"""
-    d1 = decoder_block(b1, s4, 512) #64
-    d2 = decoder_block(d1, s3, 256) #128
-    d3 = decoder_block(d2, s2, 128) #256
-    d4 = decoder_block(d3, s1, 64) #512
-    
-    """Outputs"""
-    outputs = Conv2D(1, 1, padding="same", activation="sigmoid")(d4)
-    
-    model = Model(inputs, outputs)
- return model
+        # Display the image in the subplot
+        axs[i, j].imshow(image)
+        axs[i, j].set_title(f'{labels[i]} Image {j + 1}')
+        axs[i, j].axis('off')
 
-model = build_resnet50_unet((512,512,3))
-
-model.summary()
+plt.show()
 
 
-""Defining Metrics And Loss Functions""
+# Define the directory paths
+input_dir = '/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT'
+overlayed_dir = '/kaggle/working/OverlayedImages/benign'
+
+# Create a figure to display the images
+fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+# Desired width and height for display
+desired_width = 300
+desired_height = 300
+
+# Select an image (change the index as needed)
+image_filename = 'benign (10).png'
+
+# Construct the file paths
+actual_image_path = os.path.join(input_dir, 'benign', image_filename)
+mask_image_path = os.path.join(input_dir, 'benign', image_filename.replace(".png", "_mask.png"))
+overlayed_image_path = os.path.join(overlayed_dir, image_filename)
+
+# Load the images
+actual_image = Image.open(actual_image_path)
+
+mask_image = Image.open(mask_image_path)
+overlayed_image = Image.open(overlayed_image_path)
+
+# Resize the images
+actual_image = actual_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+mask_image = mask_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+overlayed_image = overlayed_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+
+# Display the images
+axs[0].imshow(actual_image)
+axs[0].set_title('benign -Actual Image')
+axs[0].axis('off')
+
+axs[1].imshow(mask_image, cmap='gray')
+axs[1].set_title('benign - Mask')
+axs[1].axis('off')
+
+axs[2].imshow(overlayed_image)
+axs[2].set_title('benign - Overlayed Image')
+axs[2].axis('off')
+
+plt.tight_layout()
+plt.show()
 
 
-import tensorflow as tf
+# Define the directory paths
+input_dir = '/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT'
+overlayed_dir = '/kaggle/working/OverlayedImages/malignant'
 
-def pixel_accuracy(y_true, y_pred):
-    # Convert the predicted probabilities to class labels
-    y_pred = tf.argmax(y_pred, axis=-1)
+# Create a figure to display the images
+fig, axs = plt.subplots(1, 3, figsize=(15, 5))
 
-    # Flatten the tensors
-    y_true = tf.reshape(y_true, [-1])
-    y_pred = tf.reshape(y_pred, [-1])
+# Desired width and height for display
+desired_width = 300
+desired_height = 300
 
-    # Cast y_true to the same data type as y_pred
-    y_true = tf.cast(y_true, y_pred.dtype)
+# Select an image (change the index as needed)
+image_filename = 'malignant (103).png'
 
-    # Calculate the pixel accuracy
-    correct_pixels = tf.reduce_sum(tf.cast(tf.equal(y_true, y_pred), tf.float32))
-    total_pixels = tf.cast(tf.size(y_true), tf.float32)
+# Construct the file paths
+actual_image_path = os.path.join(input_dir, 'malignant', image_filename)
+mask_image_path = os.path.join(input_dir, 'malignant', image_filename.replace(".png", "_mask.png"))
+overlayed_image_path = os.path.join(overlayed_dir, image_filename)
 
-    accuracy = correct_pixels / total_pixels
-    return accuracy
+# Load the images
+actual_image = Image.open(actual_image_path)
+mask_image = Image.open(mask_image_path)
+overlayed_image = Image.open(overlayed_image_path)
 
-import tensorflow as tf
-from keras import backend as K
-
-def dice_coef(y_true, y_pred, smooth=1):
-    y_true = tf.one_hot(K.argmax(y_true), 3)  
-    y_pred = tf.one_hot(K.argmax(y_pred), 3)  
-    intersection = K.sum(y_true * y_pred)
-    union = K.sum(y_true) + K.sum(y_pred)
-    dice_coef = (2.0 * intersection + smooth) / (union + smooth)
-    return dice_coef
+# Resize the images
+actual_image = actual_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+mask_image = mask_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+overlayed_image = overlayed_image.resize((desired_width, desired_height), Image.ANTIALIAS)
 
 
-def dice_coef_loss(y_true, y_pred):
-    return 1 - dice_coef(y_true, y_pred)
+# Display the images
+axs[0].imshow(actual_image)
+axs[0].set_title('malignant - Actual Image')
+axs[0].axis('off')
+
+axs[1].imshow(mask_image, cmap='gray')
+axs[1].set_title('malignant - Mask')
+axs[1].axis('off')
+
+axs[2].imshow(overlayed_image)
+axs[2].set_title('malignant - Overlayed Image')
+axs[2].axis('off')
+
+plt.tight_layout()
+plt.show()
 
 
-from tensorflow.keras.losses import categorical_crossentropy
+# Define the directory paths
+input_dir = '/kaggle/input/breast-ultrasound-images-dataset/Dataset_BUSI_with_GT'
+overlayed_dir = '/kaggle/working/OverlayedImages/normal'
 
-def bce_dice_loss(y_true, y_pred):
-    bce = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-    return dice_coef_loss(y_true, y_pred) + bce(y_true, y_pred)
+# Create a figure to display the images
+fig, axs = plt.subplots(1, 3, figsize=(15, 5))
 
-import tensorflow.keras as keras
-keras.utils.get_custom_objects()['pixel_accuracy'] = pixel_accuracy
-keras.utils.get_custom_objects()['dice_coef'] = dice_coef
-keras.utils.get_custom_objects()['dice_coef_loss'] = dice_coef_loss
-keras.utils.get_custom_objects()['bce_dice_loss'] = bce_dice_loss
+# Desired width and height for display
+desired_width = 300
+desired_height = 300
 
-""Training The Model""
-model.compile(
-    optimizer='adam',
-    loss=bce_dice_loss,
-    metrics=[dice_coef,'accuracy'])
+# Select an image (change the index as needed)
+image_filename = 'normal (1).png'
 
-history = model.fit(
-    train_gen,
-    validation_data=valid_gen,
-    epochs=50,
-    validation_steps=len(data_val) /8,
-    steps_per_epoch=len(data_train) /8
-)
+# Construct the file paths
+actual_image_path = os.path.join(input_dir, 'normal', image_filename)
+mask_image_path = os.path.join(input_dir, 'normal', image_filename.replace(".png", "_mask.png"))
+overlayed_image_path = os.path.join(overlayed_dir, image_filename)
 
-eval_results = model.evaluate(valid_gen, steps=len(data_val) /32, verbose=1)
+# Load the images
+actual_image = Image.open(actual_image_path)
+mask_image = Image.open(mask_image_path)
 
-""Making Predictions""
+overlayed_image = Image.open(overlayed_image_path)
+
+# Resize the images
+actual_image = actual_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+mask_image = mask_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+overlayed_image = overlayed_image.resize((desired_width, desired_height), Image.ANTIALIAS)
+
+# Display the images
+axs[0].imshow(actual_image)
+axs[0].set_title('Normal - Actual Image')
+axs[0].axis('off')
+
+axs[1].imshow(mask_image, cmap='gray')
+axs[1].set_title('Normal - Mask')
+axs[1].axis('off')
+
+axs[2].imshow(overlayed_image)
+axs[2].set_title('Normal- Overlayed Image')
+axs[2].axis('off')
+
+plt.tight_layout()
+plt.show()
 
 
-import cv2
-for i in range(10):
-    index=np.random.randint(1,len(data_test.index))
-    img = cv2.imread(data_test['images'].iloc[index])
-    img = cv2.resize(img ,(256, 256))
-    img = img / 255
-    img = img[np.newaxis, :, :, :]
-    pred=model.predict(img)
+# Define the minority classes in your dataset
+class_names = ['malignant', 'normal','benign']
+minority_classes = ['malignant', 'normal']
 
-    plt.figure(figsize=(10,10))
-    plt.subplot(1,4,1)
-    plt.imshow(np.squeeze(img))
-    plt.title('Original Image')
-    plt.subplot(1,4,2)
-    plt.imshow(np.squeeze(cv2.imread(data_test['masks'].iloc[index])))
-    plt.title('Original Mask')
-    plt.subplot(1,4,3)
-    plt.imshow(np.squeeze(pred) > .8)
-    plt.title('Prediction')
-    plt.subplot(1,4,4)
-    plt.imshow(np.squeeze(img))
-    plt.imshow(np.squeeze(pred) > .8,alpha=0.4)
-    plt.title('Image with prediction mask')
-    plt.show()
+# Define custom data transformations for minority classes
+minority_class_transforms = transforms.Compose([
+    RandomHorizontalFlip(p=0.9),  # Apply with 90% probability
+    RandomRotation(15, expand=False, center=None),
+    ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+])
 
-""Saving The Model""
+# Define data transformations for train, validation, and test sets
+data_transforms = {
+    'train': transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        # Apply custom augmentations to minority classes
+        transforms.RandomApply([minority_class_transforms], p=0.5) if any(cls in minority_classes for cls in class_names) else transforms.RandomApply([], p=0.0),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+ 'validation': transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+    'test': transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+}
 
-import pickle
-with open('model.pkl', 'wb') as f:
-    pickle.dump(model, f)
+
