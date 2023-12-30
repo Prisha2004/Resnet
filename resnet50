@@ -320,5 +320,254 @@ data_transforms = {
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ]),
 }
+# Set the path to your input folder
+data_dir = '/kaggle/working/OverlayedImages'
+
+# Create a list to store file paths and labels
+file_paths = []
+labels = []
+
+# Loop through the subdirectories (benign, malignant, normal)
+for label in os.listdir(data_dir):
+    label_dir = os.path.join(data_dir, label)
+    if os.path.isdir(label_dir):
+        for image_file in os.listdir(label_dir):
+            if image_file.endswith('.png') and not (image_file.endswith('_mask.png') or 
+                                                     image_file.endswith('_mask_1.png') or
+                                                     image_file.endswith('_mask_2.png')):
+                image_path = os.path.join(label_dir, image_file)
+                labels.append(label)
+                file_paths.append(image_path)
+
+# Create a DataFrame to store the file paths and labels
+data = pd.DataFrame({'Image_Path': file_paths, 'Label': labels})
+
+# Split the dataset into train, validation, and test sets
+train_data, test_data = train_test_split(data, test_size=0.15, random_state=42, stratify=data['Label'])
+train_data, val_data = train_test_split(train_data, test_size=0.15, random_state=42, stratify=train_data['Label'])
+
+# Define the paths for the train, validation, and test directories
+train_dir = '/kaggle/working/train'
+val_dir = '/kaggle/working/validation'
+test_dir = '/kaggle/working/test'
+
+# Create the train, validation, and test directories and subdirectories
+for label in labels:
+    os.makedirs(os.path.join(train_dir, label), exist_ok=True)
+    os.makedirs(os.path.join(val_dir, label), exist_ok=True)
+    os.makedirs(os.path.join(test_dir, label), exist_ok=True)
+
+# Copy the images to the corresponding directories
+for _, row in train_data.iterrows():
+    image_path = row['Image_Path']
+    label = row['Label']
+    shutil.copy(image_path, os.path.join(train_dir, label))
+
+for _, row in val_data.iterrows():
+    image_path = row['Image_Path']
+    label = row['Label']
+    shutil.copy(image_path, os.path.join(val_dir, label))
+
+for _, row in test_data.iterrows():
+    image_path = row['Image_Path']
+    label = row['Label']
+    shutil.copy(image_path, os.path.join(test_dir, label))
+import os
+train_dir = '/kaggle/working/train'
+
+# List the subdirectories (benign, malignant, normal)
+subdirectories = ['benign', 'malignant', 'normal']
+
+# Dictionary to store file counts
+file_counts = {}
+
+# Loop through the subdirectories and count files in each
+for subdirectory in subdirectories:
+    subdirectory_path = os.path.join(train_dir, subdirectory)
+    if os.path.exists(subdirectory_path):
+        file_count = len(os.listdir(subdirectory_path))
+        file_counts[subdirectory] = file_count
+
+# Print the file counts
+for category, count in file_counts.items():
+   # print("Train folder counts including masks:")
+    print(f"Train {category}: {count}")
+
+validation_dir = '/kaggle/working/validation'
+
+# List the subdirectories (benign, malignant, normal)
+subdirectories = ['benign', 'malignant', 'normal']
+
+# Dictionary to store file counts
+file_counts = {}
+
+# Loop through the subdirectories and count files in each
+for subdirectory in subdirectories:
+    subdirectory_path = os.path.join(validation_dir, subdirectory)
+    if os.path.exists(subdirectory_path):
+        file_count = len(os.listdir(subdirectory_path))
+        file_counts[subdirectory] = file_count
+
+# Print the file counts
+for category, count in file_counts.items():
+    #print("Validation folder counts including masks:")
+    print(f"Validation {category}: {count}")
+
+
+test_dir = '/kaggle/working/test'
+
+# List the subdirectories (benign, malignant, normal)
+subdirectories = ['benign', 'malignant', 'normal']
+
+# Dictionary to store file counts
+file_counts = {}
+
+# Loop through the subdirectories and count files in each
+for subdirectory in subdirectories:
+    subdirectory_path = os.path.join(test_dir, subdirectory)
+    if os.path.exists(subdirectory_path):
+        file_count = len(os.listdir(subdirectory_path))
+        file_counts[subdirectory] = file_count
+
+# Print the file counts
+for category, count in file_counts.items():
+    #print("test folder counts including masks:")
+    print(f"test {category}: {count}")
+data_dir='/kaggle/working/'
+
+# Create datasets for train, validation, and test
+image_datasets = {
+    x: ImageFolder(
+        root=os.path.join(data_dir, x),
+        transform=data_transforms[x]
+    )
+    for x in ['train', 'validation', 'test']
+}
+
+# Specify batch size for dataloaders
+batch_size = 8  # You can adjust this based on your hardware and preferences
+
+# Create dataloaders for train, validation, and test
+dataloaders = {x: DataLoader(image_datasets[x], batch_size=batch_size, shuffle=True, num_workers=4)
+               for x in ['train', 'validation', 'test']}
+
+# Calculate dataset sizes
+dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'validation', 'test']}
+
+# Get class labels
+class_names = image_datasets['train'].classes
+
+# Print dataset sizes and class labels
+print("Dataset Sizes:", dataset_sizes)
+print("Class Labels:", class_names)
+#Transfer Learning by fineTuning the pretrained Resnet101 Model
+#Load Resnet101 pretained Model
+#Resnet101 = models.resnet101(pretrained=True)
+#If pretained is not working, you can also use weights instead.
+Resnet101 = models.resnet101(weights=True)
+
+print(Resnet101)
+#Set the resnet param.requires_grad = True to calculate the gradient,
+#so that model fine-tunes the weights of the pretrained network
+#by continuing the backpropagation.
+for param in Resnet101.parameters():
+    param.requires_grad = True
+
+#Get the number of Input features of Resnet last fully connected layer
+#because we are going to replace it with new fully connected layer.
+in_features = Resnet101.fc.in_features
+
+#Reset the final fully connected layer of the of the pre-trained Resnet.
+Resnet101.fc = nn.Linear(in_features, len(class_names))
+
+Resnet_fineTuning = Resnet101.to(device)
+#Define optimzation algorithm
+optimizer = optim.Adam(Resnet_fineTuning.parameters(), lr=0.00005)
+
+# Decay LR by a factor of 0.1 every 7 epochs
+Decay_Learning_Rate = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
+#Define loss functions
+Loss_Function = nn.CrossEntropyLoss()
+model_fineTuning = train_model_with_early_stopping(
+    Resnet_fineTuning, Loss_Function, optimizer, Decay_Learning_Rate, 
+    dataloaders, dataset_sizes, class_names, device,num_epochs=20, patience=2)
+torch.save(model_fineTuning, "/kaggle/working/Resnet_fineTuning.pth")
+# Define label names
+label_names = [str(class_names[i]) for i in range(len(class_names))]
+
+# Calculate classification report and confusion matrix on unseen test data
+y_true = []
+y_pred = []
+
+model_fineTuning.eval()  # Set model to evaluation mode
+
+with torch.no_grad():
+    for inputs, labels in dataloaders['test']:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        outputs = model_fineTuning(inputs)
+        _, preds = torch.max(outputs, 1)
+
+        y_true.extend(labels.cpu().numpy())
+        y_pred.extend(preds.cpu().numpy())
+
+# Generate classification report
+classification_rep = classification_report(y_true, y_pred, target_names=label_names, output_dict=True)
+
+# Generate confusion matrix
+confusion_mat = confusion_matrix(y_true, y_pred)
+
+# Plot the confusion matrix with label names
+plt.figure(figsize=(5, 3))
+sns.heatmap(confusion_mat, annot=True, fmt='d', cmap='Blues', cbar=False, xticklabels=label_names, yticklabels=label_names)
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Convert the classification report to a heatmap
+plt.figure(figsize=(6, 4))
+sns.heatmap(pd.DataFrame(classification_rep).iloc[:-1, :].T, annot=True, cmap='Blues', fmt='.2f')  # Simplify classification report
+plt.title('Classification Report Heatmap')
+plt.show()
+
+# Print the simplified classification report
+print("Simplified Classification Report:")
+print(pd.DataFrame(classification_rep).iloc[:-1, :])  # Display without support and avg/total rows
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set the number of images to display
+num_images_to_display = 15
+
+# Create a DataLoader for the test dataset
+test_dataloader = DataLoader(image_datasets['test'], batch_size=num_images_to_display, shuffle=True, num_workers=4)
+
+# Get a batch of test data
+inputs, labels = next(iter(test_dataloader))
+
+# Move inputs to the device
+inputs = inputs.to(device)
+
+# Convert images to grayscale
+grayscale_images = inputs.cpu().numpy().mean(axis=1)  # Convert RGB to grayscale
+
+# Get model predictions
+with torch.no_grad():
+    model_fineTuning.eval()
+    outputs = model_fineTuning(inputs)
+    _, preds = torch.max(outputs, 1)
+
+# Plot the grayscale images with labels and predictions
+plt.figure(figsize=(15, 20))  # Increase the height to accommodate 5 rows
+for i in range(num_images_to_display):
+    ax = plt.subplot(5, 3, i + 1)  # Adjust the layout to 5 rows by 3 columns
+    ax.axis('off')
+    ax.set_title(f'Actual: {class_names[labels[i]]}\nPredicted: {class_names[preds[i]]}')
+    plt.imshow(grayscale_images[i], cmap='gray')  # Display the grayscale image
+
+plt.show()
 
 
